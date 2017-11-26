@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="es">
+<head>
+	<meta charset="utf-8">
+	<title>Compilador | Prototipo 0</title>
+</head>
+<body>
+
+<h1>Compilador | Prototipo 0</h1>
+
+<article class="editor">
+<ol class="editor-listing" data-project="./example-project/">
+</ol>
+
+<section class="editor-workbench">
+	<button id="compile-run">Compilar y correr</button><br>
+	<label for="source">Fuente <span id="file"></span></label><br>
+
+	<textarea id="source" rows="8" cols="80"
+	>void main() { printf("hello world"); }</textarea><br>
+
+	<label for="stdin">STDIN</label><br>
+	<textarea id="stdin" rows="2" cols="80"></textarea><br>
+
+	<p>STDOUT</p><pre><code id="stdout"></code></pre>
+	<p>STDERR</p><pre><code id="stderr"></code></pre>
+</section>
+</article>
+
+<script>
+window.addEventListener('load', function() {
+	var loader = function(url) {
+		var source = document.getElementById('source');
+		var file = document.getElementById('file');
+		return function(e) {
+			e.preventDefault();
+			e.stopPropagation();
+			var req = new XMLHttpRequest();
+			req.addEventListener('load', function() {
+				source.value = this.responseText;
+				file.innerHTML = url;
+				if ('createEvent' in document) {
+					var evt = document.createEvent('HTMLEvents');
+					evt.initEvent('input', false, true);
+					source.dispatchEvent(evt);
+				} else {
+					source.fireEvent('oninput');
+				}
+			});
+			req.open('GET', url);
+			req.send();
+		};
+	};
+
+	var projects = document.getElementsByClassName('editor-listing');
+	for (var i = 0; i < projects.length; i++) {
+		var name = projects[i].dataset.project;
+		var req = new XMLHttpRequest();
+		req.addEventListener('load', (function(list) {
+			return function() {
+				var data = JSON.parse(this.responseText);
+				for (var j = 0; j < data.files.length; j++) {
+					var li = document.createElement('li');
+						li.dataset.file = data.files[j];
+					var a = document.createElement('a');
+						a.href = data.files[j];
+						a.className = 'file-load';
+						a.innerHTML = data.files[j];
+						a.addEventListener('click', loader(data.files[j]));
+					li.appendChild(a);
+					list.appendChild(li);
+				}
+			};
+		})(projects[i]));
+		req.open('GET', name);
+		req.send();
+	}
+
+	var run = document.getElementById('compile-run');
+	var source = document.getElementById('source');
+	var stdin = document.getElementById('stdin');
+	var stdout = document.getElementById('stdout');
+	var stderr = document.getElementById('stderr');
+	run.addEventListener('click', function(e) {
+		e.preventDefault();
+		e.stopPropagation();
+		var req = new XMLHttpRequest();
+		req.addEventListener('load', function() {
+			var data = JSON.parse(this.responseText);
+			stdout.innerHTML = data.stdout;
+			stderr.innerHTML = data.stderr;
+		});
+		var body = {
+			source: source.value,
+			stdin: stdin.value,
+		};
+		var body_pairs = [];
+		for (var k in body)
+			body_pairs.push(encodeURIComponent(k) + '=' + encodeURIComponent(body[k]));
+		var body_str = body_pairs.join('&').replace(/%20/g, '+');
+		req.open('POST', '/compilador/');
+		req.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+		req.send(body_str);
+	});
+});
+</script>
+
+<style>
+html {
+	-webkit-box-sizing: border-box;
+	-moz-box-sizing: border-box;
+	box-sizing: border-box;
+}
+*, *:before, *:after {
+	-webkit-box-sizing: inherit;
+	-moz-box-sizing: inherit;
+	box-sizing: inherit;
+}
+body {
+	font-family: monospace;
+}
+h1,
+h2,
+h3 {
+	text-align: center;
+}
+.editor {
+	display: flex;
+	flex-flow: row wrap;
+	padding: 1em;
+}
+.editor .editor-listing,
+.editor .editor-workbench {
+	padding: 1em;
+}
+</style>
+
+</body>
+</html>
