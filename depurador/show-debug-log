@@ -1,0 +1,15 @@
+#!/bin/sh
+
+if [ -z "$1" ]; then
+	echo "usage: $0 <GDB-OUTPUT> [FROM-LINE]" >&2
+	exit 1
+fi
+output=$1
+line=$(echo "${2:-0}" | bc)
+
+if [ ! -e "$output" ]; then
+	echo "$output: debugger is not running" >&2
+	exit 1
+fi
+
+awk '{ if ('$line' <= $1) print $0 }' "$output"

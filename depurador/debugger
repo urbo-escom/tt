@@ -1,0 +1,35 @@
+#!/bin/sh
+
+if [ -z "$1" ]; then
+	echo "usage: $0 <GDB-PIPE>" >&2
+	exit 1
+fi
+input=$1
+
+if [ -e "$input" ]; then
+	echo "$input: must not exist" >&2
+	exit 1
+fi
+mkfifo "$input"
+trap "rm -f $input" EXIT HUP INT TERM
+
+
+lineno=0
+end_all=
+echo "@$(date +%s): STARTED" >&2
+while [ -z "$end_all" ]; do
+	while read line < "$input"; do
+		echo "$line"
+		echo "@$(date +%s): $line" >&2
+
+		if [ "-gdb-exit" = "$line" ]; then
+			end_all=yes_please
+			break
+		fi
+	done
+done |
+gdb --interpreter mi |
+while read line; do
+	echo "$lineno $line"
+	lineno=$((lineno + 1))
+done

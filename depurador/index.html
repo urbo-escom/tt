@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+	<meta charset="utf-8">
+	<title>Depurador | Prototipo 0</title>
+	<script src="prism.js"></script>
+	<script src="index.js"></script>
+	<link href="prism.css" rel="stylesheet">
+</head>
+<body>
+
+<h1>Depurador | Prototipo 0</h1>
+
+<article class="editor">
+<ol class="editor-listing" data-project="./example-project/">
+</ol>
+
+<section class="editor-workbench">
+	<div class="editor-buttons">
+		<button id="compile-debug">Compilar y depurar</button><br>
+		<button id="gdb-stop">STOP</button>
+		<button id="gdb-step">STEP</button>
+		<button id="gdb-next">NEXT</button>
+		<button id="gdb-finish">FINISH</button>
+		<button id="gdb-continue">CONTINUE</button>
+		<button id="gdb-brk">BREAKPOINT</button>: <input type="number" min="1" max="10000" id="gdb-brk-num" value="1">
+		<label>FUNC:<output id="gdb-file"></output></label>|
+		<label>LINE:<output id="gdb-line"></output></label>
+	</div>
+	<p>STDOUT</p><pre><code id="stdout"></code></pre>
+	<p>STDERR</p><pre><code id="stderr"></code></pre>
+	<label for="stdin">STDIN</label><br>
+	<textarea id="stdin" rows="2" cols="80"></textarea><br>
+	<label for="source">Fuente <span id="file"></span></label><br>
+	<pre><code class="language-c line-numbers" id="source-preview" data-line="1"></code></pre>
+
+	<textarea id="source" rows="48" cols="80"
+	>void main() { printf("hello world"); }</textarea><br>
+
+	<p>LOG</p><pre><code id="log"></code></pre>
+</section>
+</article>
+
+<style>
+html {
+	-webkit-box-sizing: border-box;
+	-moz-box-sizing: border-box;
+	box-sizing: border-box;
+}
+*, *:before, *:after {
+	-webkit-box-sizing: inherit;
+	-moz-box-sizing: inherit;
+	box-sizing: inherit;
+}
+body {
+	font-family: monospace;
+}
+h1,
+h2,
+h3 {
+	text-align: center;
+}
+.editor {
+	display: flex;
+	flex-flow: row wrap;
+	padding: 1em;
+}
+body > :first-child {
+	padding-top: 5em;
+}
+.editor .editor-buttons {
+	position: fixed;
+	background-color: #eee;
+	left: 0;
+	right: 0;
+	top: 0;
+	z-index: 1;
+	padding: 2em;
+}
+.editor .editor-listing,
+.editor .editor-workbench {
+	padding: 1em;
+}
+</style>
+
+</body>
+</html>

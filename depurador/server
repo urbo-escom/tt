@@ -1,0 +1,232 @@
+#!/usr/bin/env ruby
+require 'webrick'
+require 'json'
+require 'open3'
+include WEBrick
+
+$pid_gdb = -1
+$util = {
+	:logviewer => './show-debug-log',
+	:compiler  => './compiler',
+	:debugger  => './debugger'
+}
+$file = {
+	:src        => './file-a.c',
+	:exe        => './file-a.out',
+	:log        => './file-a.log',
+	:stdin      => './file-stdin.txt',
+	:stdout     => './file-stdout.txt',
+	:gdb_input  => './gdb-input',
+	:gdb_output => './gdb-output',
+	:gdb_stderr => './gdb-stderr'
+}
+
+
+config = {}
+config.update(:Port => 8080)
+config.update(:BindAddress => '0.0.0.0')
+config.update(:DocumentRoot => '.')
+server = HTTPServer.new(config)
+['INT', 'TERM'].each {|signal|
+	trap(signal) {
+		if -1 != $pid_gdb
+			puts "Terminating GDB"
+			Process.kill "INT", $pid_gdb
+			Process.wait $pid_gdb
+			puts "GDB terminated"
+
+			$file.each {|k, v|
+				puts v + ": deleting"
+				File.delete(v) if File.exist?(v)
+			}
+		end
+		server.shutdown
+	}
+}
+
+class Debugger < WEBrick::HTTPServlet::AbstractServlet
+
+	def do_GET(req, res)
+		case req.path
+		when "/depurador/state/"
+			if -1 == $pid_gdb
+				data = {:state => 'stopped'}
+			else
+				data = {:state => 'debugging'}
+			end
+			res['Content-Type'] = 'application/json; charset=utf-8'
+			res.body = JSON.pretty_generate(data)
+			raise HTTPStatus::OK
+
+		when "/depurador/log/"
+			data = {
+				:logs => [],
+				:state => 'debugging'
+			}
+			if -1 == $pid_gdb
+				data[:state] = 'stopped'
+			end
+			Open3.popen3($util[:logviewer] + " " + $file[:gdb_output] + " " + (req.query['lineno'] || "0")) do |stdin, stdout, stderr, main|
+				until (line = stdout.gets).nil? do
+					data[:logs].push(line)
+				end
+				main.join
+			end
+			res['Content-Type'] = 'application/json; charset=utf-8'
+			res.body = JSON.pretty_generate(data)
+			raise HTTPStatus::OK
+
+		when "/depurador/stdout/"
+			if -1 != $pid_gdb
+				res['Content-Type'] = 'text/plain; charset=utf-8'
+				res.body = File.read($file[:stdout])
+				raise HTTPStatus::OK
+			else
+				res['Content-Type'] = 'text/plain; charset=utf-8'
+				res.body = 'No <STDOUT>'
+				raise HTTPStatus::NotFound
+			end
+
+		end
+
+		res['Content-Type'] = 'text/plain'
+		res.body = 'Hello World'
+		raise HTTPStatus::OK
+	end
+
+	def do_POST(req, res)
+		case req.path
+		when "/depurador/depurar/"
+			if -1 != $pid_gdb
+				puts "GDB: killing " + $pid_gdb.to_s
+				File.write($file[:gdb_input], "-gdb-exit\n")
+				Process.wait $pid_gdb
+				puts "GDB: terminated"
+				$pid_gdb = -1
+			end
+			$file.each {|k, v|
+				puts v + ": deleting"
+				File.delete(v) if File.exist?(v)
+			}
+
+			data = {
+				:log => '',
+				:status => 0
+			}
+
+			puts "COMPILING"
+			data[:state] = 'compiling'
+			File.write($file[:src], req.query['source'])
+			File.write($file[:stdin], req.query['stdin'] || '')
+			Open3.popen3($util[:compiler] + " " + $file[:src] + " " + $file[:exe] +  " 2>&1") do |stdin, stdout, stderr, main|
+				until (line = stdout.gets).nil? do
+					data[:log] += line
+				end
+				main.join
+				data[:status] = main.value.exitstatus
+			end
+			if 0 != data[:status]
+				$file.each {|k, v|
+					puts v + ": deleting"
+					File.delete(v) if File.exist?(v)
+				}
+				res['Content-Type'] = 'application/json; charset=utf-8'
+				res.body = JSON.pretty_generate(data)
+				raise HTTPStatus::OK
+			end
+
+			puts "DEBUGGING STARTING"
+			$pid_gdb = Process.fork do
+				exec $util[:debugger] + " " + $file[:gdb_input] + " > " + $file[:gdb_output] + " 2> " + $file[:gdb_stderr]
+			end
+			until File.exist?($file[:gdb_input])
+				sleep(0.100)
+			end
+			puts "DEBUGGING STARTED"
+			sleep 1
+			[
+				"-file-exec-and-symbols " + $file[:exe],
+				"-break-insert main",
+				"run < " + $file[:stdin]
+			].each {|cmd|
+				File.open($file[:gdb_input], 'w') {|f| f.write(cmd + "\n"); puts "GDB: " + cmd; sleep 1}
+			}
+
+			puts "PID: " + $pid_gdb.to_s
+			data[:state] = 'debugging'
+			res['Content-Type'] = 'application/json; charset=utf-8'
+			res.body = JSON.pretty_generate(data)
+			raise HTTPStatus::OK
+
+		when "/depurador/comando/"
+			if -1 == $pid_gdb
+				res['Content-Type'] = 'application/json; charset=utf-8'
+				res.body = JSON.pretty_generate({:state => 'stopped'})
+				raise HTTPStatus::OK
+			end
+
+			File.write($file[:gdb_input], req.query['command'] + "\n")
+			if "-gdb-exit" == req.query['command']
+				puts "GDB: stopping " + $pid_gdb.to_s
+				Process.wait $pid_gdb
+				puts "GDB: terminated"
+				$pid_gdb = -1
+				$file.each {|k, v|
+					puts v + ": deleting"
+					File.delete(v) if File.exist?(v)
+				}
+			end
+
+			res['Content-Type'] = 'application/json; charset=utf-8'
+			res.body = JSON.pretty_generate({:state => 'debugging'})
+			raise HTTPStatus::OK
+		end
+	end
+end
+
+class Index < WEBrick::HTTPServlet::AbstractServlet
+	def do_GET(req, res)
+		if '/' == req.path
+			filename = './index.html'
+		else
+			filename = '.' + req.path
+		end
+
+		if '/example-project/' == req.path
+			files = {:files => []}
+			res['Content-Type'] =  'application/json; charset=utf-8'
+			Dir.glob('./example-project/**/*').select{|e| File.file? e}.each do |file|
+				files[:files].push(file)
+			end
+			res.body = JSON.pretty_generate(files)
+			raise HTTPStatus::OK
+		end
+
+		if File.exist?(filename)
+			case File.extname(filename)
+			when ".html"
+				res['Content-Type'] = 'text/html; charset=utf-8'
+			when ".c"
+				res['Content-Type'] = 'text/plain; charset=utf-8'
+			when ".js"
+				res['Content-Type'] = 'application/javascript; charset=utf-8'
+			when ".css"
+				res['Content-Type'] = 'text/css; charset=utf-8'
+			end
+			res.body = File.read(filename)
+			raise HTTPStatus::OK
+		else
+			res['Content-Type'] =  'text/plain; charset=utf-8'
+			res.body = 'File not found'
+			raise HTTPStatus::NotFound
+		end
+	end
+end
+
+$file.each {|k, v|
+	puts v + ": deleting"
+	File.delete(v) if File.exist?(v)
+}
+server.mount "/", Index
+server.mount "/depurador/", Debugger
+server.start
